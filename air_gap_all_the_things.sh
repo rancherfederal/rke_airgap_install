@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# yum install -y vim && mkdir /opt/rancher && cd /opt/rancher && curl -#OL https://raw.githubusercontent.com/rancherfederal/rke_airgap_install/main/air_gap_all_the_things.sh && chmod 755 air_gap_all_the_things.sh
+# mkdir /opt/rancher && cd /opt/rancher && curl -#OL https://raw.githubusercontent.com/clemenko/rke_airgap_install/main/air_gap_all_the_things.sh && chmod 755 air_gap_all_the_things.sh
 
 set -ebpf
 
-export RKE_VERSION=1.24.9
+export RKE_VERSION=1.24.11
 export CERT_VERSION=v1.10.0
-export RANCHER_VERSION=v2.7.0
-export LONGHORN_VERSION=v1.4.0
+export RANCHER_VERSION=2.7.1
+export LONGHORN_VERSION=1.4.1
 export NEU_VERSION=2.4.1 # this is the chart version for 5.1.0
 export DOMAIN=awesome.sauce
 
@@ -18,12 +18,14 @@ export BLUE='\x1b[34m'
 export YELLOW='\x1b[33m'
 export NO_COLOR='\x1b[0m'
 
+export PATH=$PATH:/usr/local/bin
+
 #better error checking
 #command -v skopeo >/dev/null 2>&1 || { echo "$RED" " ** skopeo was not found. Please install. ** " "$NORMAL" >&2; exit 1; }
 
 ################################# build ################################
 function build () {
-
+  
   echo - Installing packages
   yum install zstd skopeo -y > /dev/null 2>&1
 
@@ -60,7 +62,7 @@ function build () {
 
   echo - get charts
   helm pull jetstack/cert-manager --version $CERT_VERSION > /dev/null 2>&1
-  helm pull rancher-latest/rancher --version $RANCHER_VERSION > /dev/null 2>&1
+  helm pull rancher-latest/rancher --version v$RANCHER_VERSION > /dev/null 2>&1
   helm pull longhorn/longhorn --version $LONGHORN_VERSION > /dev/null 2>&1
   helm pull neuvector/core --version $NEU_VERSION > /dev/null 2>&1
 
@@ -71,7 +73,7 @@ function build () {
   cd /opt/rancher/images/
 
   echo - rancher image list 
-  curl -#L https://github.com/rancher/rancher/releases/download/$RANCHER_VERSION/rancher-images.txt -o rancher/orig_rancher-images.txt
+  curl -#L https://github.com/rancher/rancher/releases/download/v$RANCHER_VERSION/rancher-images.txt -o rancher/orig_rancher-images.txt
 
   echo - shorten rancher list with a sort
   # fix library tags
@@ -92,7 +94,7 @@ function build () {
   helm template /opt/rancher/helm/cert-manager-$CERT_VERSION.tgz | awk '$1 ~ /image:/ {print $2}' | sed s/\"//g > cert/cert-manager-images.txt
 
   echo - longhorn image list
-  curl -#L https://raw.githubusercontent.com/longhorn/longhorn/$LONGHORN_VERSION/deploy/longhorn-images.txt -o longhorn/longhorn-images.txt
+  curl -#L https://raw.githubusercontent.com/longhorn/longhorn/v$LONGHORN_VERSION/deploy/longhorn-images.txt -o longhorn/longhorn-images.txt
 
   echo - neuvector image list
   helm template /opt/rancher/helm/core-$NEU_VERSION.tgz | awk '$1 ~ /image:/ {print $2}' | sed -e 's/\"//g' > neuvector/neuvector_images.txt
@@ -200,7 +202,7 @@ sysctl -p > /dev/null 2>&1
 
   echo install packages
   yum install -y zstd nfs-utils iptables skopeo container-selinux iptables libnetfilter_conntrack libnfnetlink libnftnl policycoreutils-python-utils cryptsetup iscsi-initiator-utils
-  systemctl enable iscsid && systemctl start iscsid
+  systemctl enable --now iscsid
   echo -e "[keyfile]\nunmanaged-devices=interface-name:cali*;interface-name:flannel*" > /etc/NetworkManager/conf.d/rke2-canal.conf
 }
 
@@ -216,13 +218,13 @@ function deploy_control () {
   cd /opt/rancher/rke2_$RKE_VERSION
   useradd -r -c "etcd user" -s /sbin/nologin -M etcd -U
   mkdir -p /etc/rancher/rke2/ /var/lib/rancher/rke2/server/manifests/
-  echo -e "#profile: cis-1.6\nselinux: true\nsecrets-encryption: true\nwrite-kubeconfig-mode: 0640\nkube-controller-manager-arg:\n- bind-address=127.0.0.1\n- use-service-account-credentials=true\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\nkube-scheduler-arg:\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\nkube-apiserver-arg:\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\n- authorization-mode=RBAC,Node\n- anonymous-auth=false\n- audit-policy-file=/etc/rancher/rke2/audit-policy.yaml\n- audit-log-mode=blocking-strict\n- audit-log-maxage=30\nkubelet-arg:\n- protect-kernel-defaults=true\n- read-only-port=0\n- authorization-mode=Webhook" > /etc/rancher/rke2/config.yaml
+  echo -e "#profile: cis-1.6\nselinux: true\nsecrets-encryption: true\nwrite-kubeconfig-mode: 0600\nkube-controller-manager-arg:\n- bind-address=127.0.0.1\n- use-service-account-credentials=true\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\nkube-scheduler-arg:\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\nkube-apiserver-arg:\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\n- authorization-mode=RBAC,Node\n- anonymous-auth=false\n- audit-policy-file=/etc/rancher/rke2/audit-policy.yaml\n- audit-log-mode=blocking-strict\n- audit-log-maxage=30\nkubelet-arg:\n- protect-kernel-defaults=true\n- read-only-port=0\n- authorization-mode=Webhook" > /etc/rancher/rke2/config.yaml
 
   # set up audit policy file
   echo -e "apiVersion: audit.k8s.io/v1\nkind: Policy\nrules:\n- level: RequestResponse" > /etc/rancher/rke2/audit-policy.yaml
 
   # set up ssl passthrough for nginx
-  echo -e "---\napiVersion: helm.cattle.io/v1\nkind: HelmChartConfig\nmetadata:\n  name: rke2-ingress-nginx\n  namespace: kube-system\nspec:\n  valuesContent: |-\n    controller:\n      config:\n        use-forwarded-headers: true\n      extraArgs:\n        enable-ssl-passthrough: true" > /var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml; 
+  echo -e "---\napiVersion: helm.cattle.io/v1\nkind: HelmChartConfig\nmetadata:\n  name: rke2-ingress-nginx\n  namespace: kube-system\nspec:\n  valuesContent: |-\n    controller:\n      config:\n        use-forwarded-headers: true\n      extraArgs:\n        enable-ssl-passthrough: true" > /var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml
 
   # pre-load registry image
   mkdir -p /var/lib/rancher/rke2/agent/images
@@ -231,7 +233,7 @@ function deploy_control () {
  # insall rke2 - stig'd
   INSTALL_RKE2_ARTIFACT_PATH=/opt/rancher/rke2_$RKE_VERSION sh /opt/rancher/rke2_$RKE_VERSION/install.sh 
   yum install -y /opt/rancher/rke2_$RKE_VERSION/rke2-common-$RKE_VERSION.rke2r1-0.x86_64.rpm /opt/rancher/rke2_$RKE_VERSION/rke2-selinux-0.11-1.el8.noarch.rpm
-  systemctl enable rke2-server.service && systemctl start rke2-server.service
+  systemctl enable --now rke2-server.service
 
   sleep 30
 
@@ -293,12 +295,8 @@ EOF
     skopeo copy docker-archive:/opt/rancher/images/longhorn/$file docker://$(echo $file | sed 's/.tar//g' | awk -F_ '{print "localhost:5000/longhornio/"$1":"$2}') --dest-tls-verify=false
   done
 
-  # longhorn issue due to tags
-  skopeo copy docker-archive:/opt/rancher/images/longhorn/longhorn-instance-manager_v1_20221003.tar docker://localhost:5000/longhornio/longhorn-instance-manager:v1_20221003 --dest-tls-verify=false
-  skopeo copy docker-archive:/opt/rancher/images/longhorn/longhorn-share-manager_v1_20221003.tar docker://localhost:5000/longhornio/longhorn-share-manager:v1_20221003 --dest-tls-verify=false
-
   for file in $(ls /opt/rancher/images/cert/ | grep -v txt ); do 
-    skopeo copy docker-archive:/opt/rancher/images/cert/$file docker://$(echo $file | sed 's/.tar//g' | awk -F_ '{print "localhost:5000/"$1":"$2}') --dest-tls-verify=false
+    skopeo copy docker-archive:/opt/rancher/images/cert/$file docker://$(echo $file | sed 's/.tar//g' | awk -F_ '{print "localhost:5000/cert/"$1":"$2}') --dest-tls-verify=false
   done
 
   for file in $(ls /opt/rancher/images/neuvector/ | grep -v txt ); do 
@@ -308,8 +306,6 @@ EOF
   for file in $(ls /opt/rancher/images/rancher/ | grep -v txt ); do 
     skopeo copy docker-archive:/opt/rancher/images/rancher/$file docker://$(echo $file | sed 's/.tar//g' | awk -F_ '{print "localhost:5000/rancher/"$1":"$2}') --dest-tls-verify=false
   done
-
-  chmod 600 /etc/rancher/rke2/rke2.yaml
 
   echo - unpack helm
   cd /opt/rancher/helm
@@ -345,9 +341,7 @@ function deploy_worker () {
 
   # setup RKE2
   mkdir -p /etc/rancher/rke2/
-  echo -e "server: https://$server:9345\ntoken: $token\nwrite-kubeconfig-mode: 0640\n#profile: cis-1.6\nkube-apiserver-arg:\n- \"authorization-mode=RBAC,Node\"\nkubelet-arg:\n- \"protect-kernel-defaults=true\" " > /etc/rancher/rke2/config.yaml
-
-  chmod 600 /etc/rancher/rke2/config.yaml
+  echo -e "server: https://$server:9345\ntoken: $token\nwrite-kubeconfig-mode: 0600\n#profile: cis-1.6\nkube-apiserver-arg:\n- \"authorization-mode=RBAC,Node\"\nkubelet-arg:\n- \"protect-kernel-defaults=true\" " > /etc/rancher/rke2/config.yaml
 
   # install rke2
   cd /opt/rancher
@@ -356,7 +350,7 @@ function deploy_worker () {
 
   rsync -avP /opt/rancher/images/registry/registry_2.tar /var/lib/rancher/rke2/agent/images/
   
-  systemctl enable rke2-agent.service && systemctl start rke2-agent.service
+  systemctl enable --now rke2-agent.service
 }
 
 ################################# flask ################################
@@ -379,7 +373,7 @@ function flask () {
 function longhorn () {
   # deploy longhorn with local helm/images
   echo - deploying longhorn
-  helm upgrade -i longhorn /opt/rancher/helm/longhorn-1.3.2.tgz --namespace longhorn-system --create-namespace --set ingress.enabled=true --set ingress.host=longhorn.$DOMAIN --set global.cattle.systemDefaultRegistry=localhost:5000
+  helm upgrade -i longhorn /opt/rancher/helm/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace --set ingress.enabled=true --set ingress.host=longhorn.$DOMAIN --set global.cattle.systemDefaultRegistry=localhost:5000
 }
 
 ################################# neuvector ################################
@@ -393,9 +387,9 @@ function neuvector () {
 function rancher () {
   # deploy rancher with local helm/images
   echo - deploying rancher
-  helm upgrade -i cert-manager /opt/rancher/helm/cert-manager-v1.10.0.tgz --namespace cert-manager --create-namespace --set installCRDs=true --set image.repository=localhost:5000/cert-manager-controller --set webhook.image.repository=localhost:5000/cert-manager-webhook --set cainjector.image.repository=localhost:5000/cert-manager-cainjector --set startupapicheck.image.repository=localhost:5000/cert-manager-ctl
+  helm upgrade -i cert-manager /opt/rancher/helm/cert-manager-$CERT_VERSION.tgz --namespace cert-manager --create-namespace --set installCRDs=true --set image.repository=localhost:5000/cert/cert-manager-controller --set webhook.image.repository=localhost:5000/cert/cert-manager-webhook --set cainjector.image.repository=localhost:5000/cert/cert-manager-cainjector --set startupapicheck.image.repository=localhost:5000/cert/cert-manager-ctl
 
-  helm upgrade -i rancher /opt/rancher/helm/rancher-2.7.0.tgz --namespace cattle-system --create-namespace --set bootstrapPassword=bootStrapAllTheThings --set replicas=1 --set auditLog.level=2 --set auditLog.destination=hostPath --set useBundledSystemChart=true --set rancherImage=localhost:5000/rancher/rancher --set systemDefaultRegistry=localhost:5000 --set hostname=rancher.$DOMAIN
+  helm upgrade -i rancher /opt/rancher/helm/rancher-$RANCHER_VERSION.tgz --namespace cattle-system --create-namespace --set bootstrapPassword=bootStrapAllTheThings --set replicas=1 --set auditLog.level=2 --set auditLog.destination=hostPath --set useBundledSystemChart=true --set rancherImage=localhost:5000/rancher/rancher --set systemDefaultRegistry=localhost:5000 --set hostname=rancher.$DOMAIN
 
   echo "   - bootstrap password = \"bootStrapAllTheThings\" "
 }
