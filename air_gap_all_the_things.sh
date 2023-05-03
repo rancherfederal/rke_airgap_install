@@ -4,11 +4,11 @@
 
 set -ebpf
 
-export RKE_VERSION=1.24.11
-export CERT_VERSION=v1.10.0
-export RANCHER_VERSION=2.7.1
+export RKE_VERSION=1.24.13
+export CERT_VERSION=v1.11.1
+export RANCHER_VERSION=2.7.3
 export LONGHORN_VERSION=1.4.1
-export NEU_VERSION=2.4.1 # this is the chart version for 5.1.0
+export NEU_VERSION=2.4.3 
 export DOMAIN=awesome.sauce
 
 ######  NO MOAR EDITS #######
@@ -48,10 +48,10 @@ function build () {
   cd /opt/rancher/helm/
 
   echo - get helm
-  curl -#LO https://get.helm.sh/helm-v3.10.2-linux-386.tar.gz > /dev/null 2>&1
-  tar -zxvf helm-v3.10.2-linux-386.tar.gz > /dev/null 2>&1
-  rsync -avP linux-386/helm /usr/local/bin/ > /dev/null 2>&1
-  rm -rf linux-386 > /dev/null 2>&1
+  curl -#LO https://get.helm.sh/helm-v3.11.3-linux-amd64.tar.gz > /dev/null 2>&1
+  tar -zxvf helm-v3.11.3-linux-amd64.tar.gz > /dev/null 2>&1
+  rsync -avP linux-amd64/helm /usr/local/bin/ > /dev/null 2>&1
+  rm -rf linux-amd64 > /dev/null 2>&1
 
   echo - add repos
   helm repo add jetstack https://charts.jetstack.io > /dev/null 2>&1
@@ -88,7 +88,7 @@ function build () {
   done
  
   # final sort
-  cat rancher/version_unsorted.txt | sort -u >> rancher/rancher-images.txt
+  cat rancher/version_unsorted.txt | sort -u > rancher/rancher-images.txt
 
   echo - Cert-manager image list
   helm template /opt/rancher/helm/cert-manager-$CERT_VERSION.tgz | awk '$1 ~ /image:/ {print $2}' | sed s/\"//g > cert/cert-manager-images.txt
@@ -120,7 +120,7 @@ function build () {
     skopeo copy docker://$i docker-archive:rancher/$(echo $i| awk -F/ '{print $2}'|sed 's/:/_/g').tar:$(echo $i| awk -F/ '{print $2}') > /dev/null 2>&1
   done
 
-  curl -#L https://github.com/clemenko/rke_airgap_install/raw/main/registry.tar -o registry/registry_2.tar > /dev/null 2>&1
+  curl -#L https://github.com/clemenko/rke_airgap_install/raw/main/registry.tar -o registry/registry.tar > /dev/null 2>&1
 
   # add flask app and yaml.
   skopeo copy docker://redis docker-archive:flask/redis.tar > /dev/null 2>&1
@@ -228,7 +228,7 @@ function deploy_control () {
 
   # pre-load registry image
   mkdir -p /var/lib/rancher/rke2/agent/images
-  rsync -avP /opt/rancher/images/registry/registry_2.tar /var/lib/rancher/rke2/agent/images/
+  rsync -avP /opt/rancher/images/registry/registry.tar /var/lib/rancher/rke2/agent/images/
 
  # insall rke2 - stig'd
   INSTALL_RKE2_ARTIFACT_PATH=/opt/rancher/rke2_$RKE_VERSION sh /opt/rancher/rke2_$RKE_VERSION/install.sh 
@@ -270,7 +270,8 @@ spec:
     spec:
       containers:
       - name: registry
-        image: registry:2
+        image: registry
+        imagePullPolicy: Never
         ports:
         - name: registry
           containerPort: 5000
@@ -288,7 +289,7 @@ spec:
       hostNetwork: true
 EOF
 
-  sleep 30
+  sleep 45
   
   echo - load images
   for file in $(ls /opt/rancher/images/longhorn/ | grep -v txt ); do 
@@ -321,7 +322,7 @@ EOF
   echo "  - CD: \"cd /opt/rancher\""
   echo "  - Run: \""$0" worker\" on your worker nodes"
   echo "------------------------------------------------------------------"
-  echo "  - yolo: \"mkdir /opt/rancher && mount $(hostname -I | awk '{ print $1 }'):/opt/rancher /opt/rancher && cd /opt/rancher && $0 worker\""
+  echo "  - yolo: \"mkdir /opt/rancher && echo \"$(hostname -I | awk '{ print $1 }'):/opt/rancher /opt/rancher nfs rw,hard,rsize=1048576,wsize=1048576 0 0\" >> /etc/fstab && mount -a && cd /opt/rancher && $0 worker\""
   echo "------------------------------------------------------------------"
 
 }
@@ -348,7 +349,7 @@ function deploy_worker () {
   INSTALL_RKE2_ARTIFACT_PATH=/opt/rancher/rke2_$RKE_VERSION INSTALL_RKE2_TYPE=agent sh /opt/rancher/rke2_$RKE_VERSION/install.sh 
   yum install -y /opt/rancher/rke2_$RKE_VERSION/rke2-common-$RKE_VERSION.rke2r1-0.x86_64.rpm /opt/rancher/rke2_$RKE_VERSION/rke2-selinux-0.11-1.el8.noarch.rpm
 
-  rsync -avP /opt/rancher/images/registry/registry_2.tar /var/lib/rancher/rke2/agent/images/
+  rsync -avP /opt/rancher/images/registry/registry.tar /var/lib/rancher/rke2/agent/images/
   
   systemctl enable --now rke2-agent.service
 }
@@ -380,7 +381,7 @@ function longhorn () {
 function neuvector () {
   # deploy neuvector with local helm/images
   echo - deploying neuvector
-  helm upgrade -i neuvector --namespace neuvector /opt/rancher/helm/core-$NEU_VERSION.tgz --create-namespace  --set imagePullSecrets=regsecret --set k3s.enabled=true --set k3s.runtimePath=/run/k3s/containerd/containerd.sock  --set manager.ingress.enabled=true --set controller.pvc.enabled=true --set manager.svc.type=ClusterIP --set controller.pvc.capacity=500Mi --set registry=localhost:5000 --set controller.image.repository=neuvector/controller --set enforcer.image.repository=neuvector/enforcer --set manager.image.repository=neuvector/manager --set cve.updater.image.repository=neuvector/updater --set manager.ingress.host=neuvector.$DOMAIN
+  helm upgrade -i neuvector --namespace neuvector /opt/rancher/helm/core-$NEU_VERSION.tgz --create-namespace  --set imagePullSecrets=regsecret --set k3s.enabled=true --set k3s.runtimePath=/run/k3s/containerd/containerd.sock  --set manager.ingress.enabled=true --set controller.pvc.enabled=true --set manager.svc.type=ClusterIP --set controller.pvc.capacity=500Mi --set registry=localhost:5000 --set controller.image.repository=neuvector/controller --set enforcer.image.repository=neuvector/enforcer --set manager.image.repository=neuvector/manager --set cve.updater.image.repository=neuvector/updater --set manager.ingress.host=neuvector.$DOMAIN --set internal.certmanager.enabled=true
 }
 
 ################################# rancher ################################
