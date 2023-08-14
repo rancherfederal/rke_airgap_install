@@ -4,11 +4,11 @@
 
 set -ebpf
 
-export RKE_VERSION=1.24.13
-export CERT_VERSION=v1.11.1
-export RANCHER_VERSION=2.7.3
-export LONGHORN_VERSION=1.4.1
-export NEU_VERSION=2.4.3 
+export RKE_VERSION=1.26.7
+export CERT_VERSION=v1.12.3
+export RANCHER_VERSION=2.7.4
+export LONGHORN_VERSION=1.5.1
+export NEU_VERSION=2.6.1
 export DOMAIN=awesome.sauce
 
 ######  NO MOAR EDITS #######
@@ -29,7 +29,7 @@ function build () {
   echo - Installing packages
   yum install zstd skopeo -y > /dev/null 2>&1
 
-  mkdir -p /opt/rancher/rke2_$RKE_VERSION/
+  mkdir -p /opt/rancher/{rke2_$RKE_VERSION,helm} /opt/rancher/images/{cert,rancher,longhorn,registry,flask,neuvector}
   cd /opt/rancher/rke2_$RKE_VERSION/
 
   echo - download rke, rancher and longhorn
@@ -37,14 +37,13 @@ function build () {
   curl -#OL https://github.com/rancher/rke2/releases/download/v$RKE_VERSION%2Brke2r1/rke2-images.linux-amd64.tar.zst
   curl -#OL https://github.com/rancher/rke2/releases/download/v$RKE_VERSION%2Brke2r1/rke2.linux-amd64.tar.gz
   curl -#OL https://github.com/rancher/rke2/releases/download/v$RKE_VERSION%2Brke2r1/sha256sum-amd64.txt
-  curl -#OL https://github.com/rancher/rke2-packaging/releases/download/v$RKE_VERSION%2Brke2r1.stable.0/rke2-common-$RKE_VERSION.rke2r1-0.x86_64.rpm
-  curl -#OL https://github.com/rancher/rke2-selinux/releases/download/v0.11.stable.1/rke2-selinux-0.11-1.el8.noarch.rpm
+  curl -#OL https://github.com/rancher/rke2-packaging/releases/download/v$RKE_VERSION%2Brke2r1.stable.0/rke2-common-$RKE_VERSION.rke2r1-0.el9.x86_64.rpm
+  curl -#OL https://github.com/rancher/rke2-selinux/releases/download/v0.14.stable.1/rke2-selinux-0.14-1.el9.noarch.rpm
 
   echo - get the install script
   curl -sfL https://get.rke2.io -o install.sh
 
   echo - Get Helm Charts
-  mkdir -p /opt/rancher/helm/
   cd /opt/rancher/helm/
 
   echo - get helm
@@ -69,7 +68,6 @@ function build () {
   echo - Get Images - Rancher/Longhorn
 
   echo - create image dir
-  mkdir -p /opt/rancher/images/{cert,rancher,longhorn,registry,flask,neuvector}
   cd /opt/rancher/images/
 
   echo - rancher image list 
@@ -97,7 +95,7 @@ function build () {
   curl -#L https://raw.githubusercontent.com/longhorn/longhorn/v$LONGHORN_VERSION/deploy/longhorn-images.txt -o longhorn/longhorn-images.txt
 
   echo - neuvector image list
-  helm template /opt/rancher/helm/core-$NEU_VERSION.tgz | awk '$1 ~ /image:/ {print $2}' | sed -e 's/\"//g' > neuvector/neuvector_images.txt
+  helm template /opt/rancher/helm/core-$NEU_VERSION.tgz | awk '$1 ~ /image:/ {print $2}' | sed -e 's/\"//g' > neuvector/neuvector-images.txt
 
  # get images
   echo - skopeo - cert-manager
@@ -106,7 +104,7 @@ function build () {
   done
 
   echo - skopeo - Neuvector
-  for i in $(cat neuvector/neuvector_images.txt); do 
+  for i in $(cat neuvector/neuvector-images.txt); do 
     skopeo copy docker://$i docker-archive:neuvector/$(echo $i| awk -F/ '{print $3}'|sed 's/:/_/g').tar:$(echo $i| awk -F/ '{print $3}') > /dev/null 2>&1
   done
 
@@ -217,7 +215,7 @@ function deploy_control () {
   echo - Install rke2
   cd /opt/rancher/rke2_$RKE_VERSION
   useradd -r -c "etcd user" -s /sbin/nologin -M etcd -U
-  mkdir -p /etc/rancher/rke2/ /var/lib/rancher/rke2/server/manifests/
+  mkdir -p /etc/rancher/rke2/ /var/lib/rancher/rke2/server/manifests/ /var/lib/rancher/rke2/agent/images /opt/rancher/registry
   echo -e "#profile: cis-1.6\nselinux: true\nsecrets-encryption: true\nwrite-kubeconfig-mode: 0600\nkube-controller-manager-arg:\n- bind-address=127.0.0.1\n- use-service-account-credentials=true\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\nkube-scheduler-arg:\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\nkube-apiserver-arg:\n- tls-min-version=VersionTLS12\n- tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\n- authorization-mode=RBAC,Node\n- anonymous-auth=false\n- audit-policy-file=/etc/rancher/rke2/audit-policy.yaml\n- audit-log-mode=blocking-strict\n- audit-log-maxage=30\nkubelet-arg:\n- protect-kernel-defaults=true\n- read-only-port=0\n- authorization-mode=Webhook" > /etc/rancher/rke2/config.yaml
 
   # set up audit policy file
@@ -227,12 +225,11 @@ function deploy_control () {
   echo -e "---\napiVersion: helm.cattle.io/v1\nkind: HelmChartConfig\nmetadata:\n  name: rke2-ingress-nginx\n  namespace: kube-system\nspec:\n  valuesContent: |-\n    controller:\n      config:\n        use-forwarded-headers: true\n      extraArgs:\n        enable-ssl-passthrough: true" > /var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml
 
   # pre-load registry image
-  mkdir -p /var/lib/rancher/rke2/agent/images
   rsync -avP /opt/rancher/images/registry/registry.tar /var/lib/rancher/rke2/agent/images/
 
  # insall rke2 - stig'd
   INSTALL_RKE2_ARTIFACT_PATH=/opt/rancher/rke2_$RKE_VERSION sh /opt/rancher/rke2_$RKE_VERSION/install.sh 
-  yum install -y /opt/rancher/rke2_$RKE_VERSION/rke2-common-$RKE_VERSION.rke2r1-0.x86_64.rpm /opt/rancher/rke2_$RKE_VERSION/rke2-selinux-0.11-1.el8.noarch.rpm
+  yum install -y /opt/rancher/rke2_$RKE_VERSION/rke2-common-$RKE_VERSION.rke2r1-0.el9.x86_64.rpm /opt/rancher/rke2_$RKE_VERSION/rke2-selinux-0.14-1.el9.noarch.rpm
   systemctl enable --now rke2-server.service
 
   sleep 30
@@ -249,7 +246,6 @@ function deploy_control () {
 
   echo - run local registry
   # Adam made me use localhost:5000
-  mkdir /opt/rancher/registry
   chcon system_u:object_r:container_file_t:s0 /opt/rancher/registry
 
 cat <<EOF | kubectl apply -f -
@@ -310,8 +306,8 @@ EOF
 
   echo - unpack helm
   cd /opt/rancher/helm
-  tar -zxvf helm-v3.10.2-linux-386.tar.gz > /dev/null 2>&1
-  rsync -avP linux-386/helm /usr/local/bin/ > /dev/null 2>&1
+  tar -zxvf helm-v3.11.3-linux-amd64.tar.gz > /dev/null 2>&1
+  rsync -avP linux-amd64/helm /usr/local/bin/ > /dev/null 2>&1
 
   cat /var/lib/rancher/rke2/server/token > /opt/rancher/token
 
@@ -347,7 +343,7 @@ function deploy_worker () {
   # install rke2
   cd /opt/rancher
   INSTALL_RKE2_ARTIFACT_PATH=/opt/rancher/rke2_$RKE_VERSION INSTALL_RKE2_TYPE=agent sh /opt/rancher/rke2_$RKE_VERSION/install.sh 
-  yum install -y /opt/rancher/rke2_$RKE_VERSION/rke2-common-$RKE_VERSION.rke2r1-0.x86_64.rpm /opt/rancher/rke2_$RKE_VERSION/rke2-selinux-0.11-1.el8.noarch.rpm
+  yum install -y /opt/rancher/rke2_$RKE_VERSION/rke2-common-$RKE_VERSION.rke2r1-0.el9.x86_64.rpm /opt/rancher/rke2_$RKE_VERSION/rke2-selinux-0.14-1.el9.noarch.rpm
 
   rsync -avP /opt/rancher/images/registry/registry.tar /var/lib/rancher/rke2/agent/images/
   
