@@ -6,7 +6,7 @@ set -ebpf
 
 export RKE_VERSION=1.26.7
 export CERT_VERSION=v1.12.3
-export RANCHER_VERSION=2.7.4
+export RANCHER_VERSION=2.7.5
 export LONGHORN_VERSION=1.5.1
 export NEU_VERSION=2.6.1
 export DOMAIN=awesome.sauce
